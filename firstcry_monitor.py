@@ -203,5 +203,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-PYEOF
-python3 -m py_compile /mnt/user-data/outputs/firstcry_monitor.py && echo "OK: compiles cleanly"
