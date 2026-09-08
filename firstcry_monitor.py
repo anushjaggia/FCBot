@@ -47,12 +47,12 @@ import requests
 
 # ---------------- CONFIG ----------------
 PRODUCT_URLS = [
-    {"label": "REPLACE ME", "url": "https://www.firstcry.com/hot-wheels/REPLACE-ME/000000/product-detail"},
+    {"label": "TOYOTA SPRINTER", "url": "https://www.firstcry.com/majorette/majorette-toyota-ae86-gt-apex-jdm-legends-premium-die-cast-model-car-with-detailed-design-white/24178920/product-detail"},
     # Examples -- delete the line above and uncomment/edit these once you've
     # picked real products from the brand links in the docstring above:
-    # {"label": "Hot Wheels - Batman 5-pack", "url": "https://www.firstcry.com/hot-wheels/hot-wheels-batman-die-cast-car-set-1-64-scale-toy-cars-pack-of-5-multicolor/22450088/product-detail"},
-    # {"label": "Matchbox - 1:64 8pc set", "url": "https://www.firstcry.com/matchbox/matchbox-1-64-scale-die-cast-cars-and-trucks-set-of-metal-toy-vehicles-with-realistic-design-8-pieces-multicolor/22411350/product-detail"},
-    # {"label": "Majorette - <pick one>", "url": "https://www.firstcry.com/majorette/REPLACE-ME/000000/product-detail"},
+    {"label": "Hot Wheels Silver Series ZAMAC", "url": "https://www.firstcry.com/hot-wheels/hot-wheels-silver-series-zamac-die-cast-free-wheel-toy-car-silver/22912948/product-detail"},
+    {"label": "Majorette Mitsubishi Lancer Evolution 9 JDM Legends", "url": "https://www.firstcry.com/majorette/majorette-mitsubishi-lancer-evolution-9-jdm-legends-premium-die-cast-car-off-white/24178926/product-detail"},
+    {"label": "Hotwheels civic Team transport", "url": "https://www.firstcry.com/hot-wheels/hot-wheels-premium-legends-tour-vehcile-die-cast-free-wheel-car-pack-of-2-white/22912945/product-detail"},
 ]
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "PASTE_TOKEN_HERE")
