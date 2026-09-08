@@ -1,4 +1,3 @@
-cat > /mnt/user-data/outputs/firstcry_monitor.py << 'PYEOF'
 """
 FirstCry restock monitor -> Telegram alert.
 
