@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import time
 
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -26,13 +25,13 @@ HOT_WHEELS_CATEGORY_URL = (
 )
 
 HOT_WHEELS_MAX_SCROLLS = 6
+PINCODE = "201012"
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "PASTE_TOKEN_HERE")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "PASTE_CHAT_ID_HERE")
 
 STATE_FILE = "firstcry_state.json"
 REQUEST_TIMEOUT = 15
-CHECK_INTERVAL_SECONDS = 180
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
 log = logging.getLogger("firstcry-monitor")
@@ -83,9 +82,101 @@ def notify(message: str) -> None:
         log.error("Telegram send failed: %s", e)
 
 
-def check_stock(page, url: str, label: str) -> tuple[str, str | None]:
+def check_delivery(page) -> bool:
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        inputs = page.locator("input").all()
+        pin_input = None
+
+        for inp in inputs:
+            try:
+                placeholder = (inp.get_attribute("placeholder") or "").lower()
+                value = (inp.get_attribute("value") or "").lower()
+                name = (inp.get_attribute("name") or "").lower()
+
+                if (
+                    "pin" in placeholder
+                    or "pincode" in placeholder
+                    or "pin" in name
+                    or "pincode" in name
+                    or "enter pin code" in value
+                ):
+                    if inp.is_visible():
+                        pin_input = inp
+                        break
+            except Exception:
+                continue
+
+        if pin_input is None:
+            pin_input = page.get_by_placeholder(
+                "Enter Pin Code",
+                exact=False,
+            ).first
+
+        if not pin_input.is_visible():
+            log.warning("Could not find visible pincode input.")
+            return False
+
+        pin_input.fill(PINCODE)
+
+        check_button = pin_input.locator(
+            "xpath=following::button[normalize-space()='CHECK'][1]"
+        )
+
+        if check_button.count() == 0 or not check_button.first.is_visible():
+            check_button = page.get_by_text("CHECK", exact=True).last
+
+        check_button.click(timeout=5000)
+
+        page.wait_for_timeout(2500)
+
+        text = page.locator("body").inner_text(timeout=10000).upper()
+
+        unavailable_phrases = [
+            "NOT DELIVERABLE",
+            "NOT AVAILABLE FOR DELIVERY",
+            "DELIVERY NOT AVAILABLE",
+            "CANNOT BE DELIVERED",
+            "UNABLE TO DELIVER",
+            "NOT SERVICEABLE",
+        ]
+
+        available_phrases = [
+            "DELIVERY BY",
+            "GET IT BY",
+            "DELIVERED BY",
+            "DELIVERY AVAILABLE",
+        ]
+
+        if any(phrase in text for phrase in unavailable_phrases):
+            log.info("Pincode %s -> NOT DELIVERABLE", PINCODE)
+            return False
+
+        if any(phrase in text for phrase in available_phrases):
+            log.info("Pincode %s -> DELIVERABLE", PINCODE)
+            return True
+
+        log.warning(
+            "Could not determine delivery status for pincode %s.",
+            PINCODE,
+        )
+        return False
+
+    except Exception as e:
+        log.error("Pincode check failed: %s", e)
+        return False
+
+
+def check_stock_and_delivery(
+    page,
+    url: str,
+    label: str,
+) -> tuple[str, bool]:
+    try:
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
         page.wait_for_timeout(5000)
 
     except PlaywrightTimeoutError:
@@ -93,46 +184,38 @@ def check_stock(page, url: str, label: str) -> tuple[str, str | None]:
 
     except Exception as e:
         log.error("Browser failed for %s: %s", url, e)
-        return "unknown", None
+        return "unknown", False
 
     try:
         upper_text = page.locator("body").inner_text(timeout=10000).upper()
 
     except Exception as e:
-        log.error("Could not read rendered page for %s: %s", label, e)
-        return "unknown", None
+        log.error("Could not read page for %s: %s", label, e)
+        return "unknown", False
 
     add_visible = "ADD TO CART" in upper_text
     notify_visible = "NOTIFY ME" in upper_text
-    low_stock_match = re.search(r"\b(\d+)\s+LEFT\b", upper_text)
 
     if notify_visible and not add_visible:
         log.info("%s -> OUT OF STOCK", label)
-        return "out_of_stock", None
+        return "out_of_stock", False
 
-    if add_visible:
-        low_stock = low_stock_match.group(1) if low_stock_match else None
+    if not add_visible:
+        log.warning("%s -> could not determine stock status", label)
+        return "unknown", False
+
+    log.info("%s -> IN STOCK", label)
+
+    deliverable = check_delivery(page)
+
+    if not deliverable:
         log.info(
-            "%s -> IN STOCK%s",
+            "%s -> IN STOCK but not deliverable to %s",
             label,
-            f" ({low_stock} left)" if low_stock else "",
+            PINCODE,
         )
-        return "in_stock", low_stock
 
-    log.warning("%s -> could not determine stock status", label)
-
-    try:
-        buttons = [
-            b.strip()
-            for b in page.locator("button:visible").all_inner_texts()
-            if b.strip()
-        ]
-        log.warning("%s -> visible buttons were: %s", label, buttons)
-
-    except Exception:
-        pass
-
-    return "unknown", None
+    return "in_stock", deliverable
 
 
 def discover_hotwheels_products(page) -> list[dict]:
@@ -170,15 +253,18 @@ def discover_hotwheels_products(page) -> list[dict]:
         )
 
     except Exception as e:
-        log.error("Could not read product links from category page: %s", e)
+        log.error("Could not read product links: %s", e)
         return []
 
-    discovered: dict[str, str] = {}
+    discovered = {}
 
     for entry in raw_links:
         href = entry.get("href") or ""
 
-        if "/hot-wheels/" not in href or href in discovered:
+        if "/hot-wheels/" not in href:
+            continue
+
+        if href in discovered:
             continue
 
         text = (entry.get("text") or "").strip().split("\n")[0]
@@ -200,38 +286,51 @@ def discover_hotwheels_products(page) -> list[dict]:
     ]
 
 
-def process_item(page, state: dict, url: str, label: str) -> None:
-    status, low_stock = check_stock(page, url, label)
+def process_item(
+    page,
+    state: dict,
+    url: str,
+    label: str,
+) -> None:
+    status, deliverable = check_stock_and_delivery(
+        page,
+        url,
+        label,
+    )
 
-    url_state = state.get(url, {})
+    if status == "unknown":
+        return
 
-    if isinstance(url_state, str):
-        url_state = {
-            "status": url_state,
-            "last_low_stock": None,
-        }
+    previous = state.get(url)
 
-    prev_status = url_state.get("status")
-    prev_low_stock = url_state.get("last_low_stock")
+    if isinstance(previous, dict):
+        previous_status = previous.get("status")
+        previous_deliverable = previous.get("deliverable", False)
+    else:
+        previous_status = previous
+        previous_deliverable = False
 
-    if status == "in_stock":
-        if prev_status != "in_stock":
-            notify(f"🚀 IN STOCK: {label}\n{url}")
+    current_available = (
+        status == "in_stock"
+        and deliverable
+    )
 
-        if (
-            low_stock
-            and int(low_stock) <= 3
-            and low_stock != prev_low_stock
-        ):
-            notify(f"⚠️ Only {low_stock} left: {label}\n{url}")
-            url_state["last_low_stock"] = low_stock
+    previous_available = (
+        previous_status == "in_stock"
+        and previous_deliverable
+    )
 
-    elif status == "out_of_stock":
-        url_state["last_low_stock"] = None
+    if current_available and not previous_available:
+        notify(
+            f"🚀 IN STOCK + DELIVERABLE: {label}\n"
+            f"Pincode: {PINCODE}\n"
+            f"{url}"
+        )
 
-    if status != "unknown":
-        url_state["status"] = status
-        state[url] = url_state
+    state[url] = {
+        "status": status,
+        "deliverable": deliverable,
+    }
 
 
 def main() -> None:
@@ -239,7 +338,7 @@ def main() -> None:
     state = load_state()
 
     log.info(
-        "Watching %d fixed Majorette item(s), plus auto-discovered Hot Wheels listings.",
+        "Watching %d Majorette item(s) and auto-discovered Hot Wheels listings.",
         len(MAJORETTE_PRODUCT_URLS),
     )
 
@@ -278,8 +377,6 @@ def main() -> None:
 
             if run_once:
                 break
-
-            time.sleep(CHECK_INTERVAL_SECONDS)
 
         browser.close()
 
