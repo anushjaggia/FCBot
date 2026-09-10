@@ -1,8 +1,9 @@
 # FCBot
 
-Monitor-only FirstCry watcher for Hot Wheels and Majorette die-cast cars. It sends a
+FirstCry watcher for Hot Wheels and Majorette die-cast cars. It sends a
 Telegram alert when a product is **in stock and deliverable to the configured pincode**
-(default `201012`). It never adds anything to a cart and never buys anything.
+(default `201012`). When `BUY_ENABLED=1`, it also logs in with `FIRSTCRY_PHONE` and
+places a separate order for each available product.
 
 ## What it checks
 
@@ -28,9 +29,43 @@ the check is `unknown`, which never changes the notification memory.
   are retried on the next run.
 - The first run with no state file records the baseline instead of alerting for everything
   already in stock.
+- Once an order is placed for a product it is marked `ordered` and is never purchased
+  again; availability alerts for it continue to follow the rules above.
 
 State lives in `firstcry_state.json`, keyed by FirstCry product id (so URL variants of the
 same product cannot alert twice).
+
+## Auto-purchase mode
+
+With `BUY_ENABLED=1` (set in the workflow), each run:
+
+1. When a product is available, it logs in via `https://www.firstcry.com/m/login`
+   using `FIRSTCRY_PHONE`. The login session is saved to `firstcry_session.json`, so
+   OTP login is only needed again if the session expires.
+2. For every available, not-yet-ordered product — one order per product, never
+   combined — it empties the cart, adds the product, opens
+   `checkout.firstcry.com/checkout`, selects the saved address, leaves the default
+   (saved card) payment untouched, and places the order.
+3. Purchases run as background tasks in separate tabs, so availability checks keep
+   running meanwhile. Orders execute one at a time (`BUY_LOCK`) because the cart is
+   account-side — parallel checkouts could merge items into a single order.
+4. Whenever an OTP screen appears (login or card/order verification), it sends a
+   Telegram message asking for the code and polls your reply (up to `OTP_WAIT_S`,
+   default 300s). OTP prompts never name the product.
+5. A failed attempt (e.g. OTP not answered in time) waits `BUY_COOLDOWN_MINUTES`
+   (default 30) before retrying, so your phone isn't spammed every 5 minutes.
+
+The session file is encrypted with `SESSION_SECRET` (`openssl aes-256-cbc`) into
+`firstcry_session.json.enc`, which the workflow keeps in the Actions cache alongside
+the state file. On checkout failure a `buy_<pid>.png` screenshot is uploaded as the
+`checkout-debug` artifact.
+
+Required secrets in GitHub: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
+`FIRSTCRY_PHONE`, `SESSION_SECRET` (any random string).
+
+**Note:** `empty_cart` removes anything already sitting in the cart before ordering —
+don't keep items you care about in the FirstCry cart. Overlapping runs are prevented by
+the workflow's `concurrency` group.
 
 ## Running locally
 
@@ -54,6 +89,12 @@ Without `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` the bot logs the alerts it wou
 | `CONCURRENCY` | `6` | Product pages checked in parallel |
 | `PRODUCT_DEADLINE_S` | `18` | Max wait per product for stock + delivery signals |
 | `MAX_NOTIFICATIONS_PER_RUN` | `10` | Guard against alert storms |
+| `BUY_ENABLED` | – | `1` turns on auto-purchase (set in the workflow) |
+| `FIRSTCRY_PHONE` | – | Mobile number used for OTP login (GitHub Secret) |
+| `SESSION_SECRET` | – | Passphrase that encrypts the cached login session |
+| `SESSION_FILE` | `firstcry_session.json` | Playwright `storage_state` location |
+| `OTP_WAIT_S` | `300` | Max wait for a Telegram OTP reply |
+| `BUY_COOLDOWN_MINUTES` | `30` | Delay before retrying a failed purchase |
 
 A pass over the current 11 products takes about 25 seconds, well inside the 5-minute
 schedule in `.github/workflows/monitor.yml`.
