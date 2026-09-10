@@ -57,10 +57,6 @@ PRODUCTS = [
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-1-5-silver-series-vintage-club-lamborghini-countach-lp-500-qv-die-cast-car-white/24390971/product-detail",
     },
     {
-        "label": "Hot Wheels Silver Series 5/5 Mercedes-Benz 300 SL - Pista",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-models-5-5-silver-series-vintage-club-mercedes-benz-300-sl-die-cast-car-pista/24390967/product-detail",
-    },
-    {
         "label": "Hot Wheels Street Shaker (202/250) - Blue",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-street-shaker-toy-car-202-250-with-free-wheel-feature-blue/24246594/product-detail",
     },
