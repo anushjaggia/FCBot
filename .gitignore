@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+firstcry_state.json
+firstcry_state.json.tmp
