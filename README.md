@@ -6,8 +6,9 @@ Telegram alert when a product is **in stock and deliverable to the configured pi
 
 ## What it checks
 
-- Two fixed Majorette product pages plus every Hot Wheels product discovered on the
-  Hot Wheels brand listing page.
+- A fixed list of product pages, `PRODUCTS` at the top of `firstcry_monitor.py`
+  (2 Majorette + 9 Hot Wheels today). Add or remove entries there; nothing is
+  discovered automatically.
 - Stock comes from the buy box: a visible `ADD TO CART` button means in stock, a visible
   `NOTIFY ME` button (or the sold-out overlay) means out of stock.
 - Delivery comes from FirstCry's own serviceability endpoint (`checkdeliveryinfo`), which
@@ -53,8 +54,6 @@ Without `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` the bot logs the alerts it wou
 | `CONCURRENCY` | `6` | Product pages checked in parallel |
 | `PRODUCT_DEADLINE_S` | `18` | Max wait per product for stock + delivery signals |
 | `MAX_NOTIFICATIONS_PER_RUN` | `10` | Guard against alert storms |
-| `HOT_WHEELS_MAX_SCROLLS` | `8` | Listing scroll/Load More passes |
-| `SKIP_HOT_WHEELS_DISCOVERY`, `MAX_PRODUCTS` | – | Debugging shortcuts |
 
-A full pass over ~215 products takes roughly 1.5 minutes, which fits the 5-minute schedule
-in `.github/workflows/monitor.yml`.
+A pass over the current 11 products takes about 25 seconds, well inside the 5-minute
+schedule in `.github/workflows/monitor.yml`.
