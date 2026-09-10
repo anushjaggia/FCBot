@@ -29,9 +29,8 @@ the check is `unknown`, which never changes the notification memory.
   are retried on the next run.
 - The first run with no state file records the baseline instead of alerting for everything
   already in stock.
-- Once an order is placed for a product it is marked `ordered` and is never alerted
-  or purchased again; remove the entry from `PRODUCTS` (or clear the flag in the state
-  file) if you ever want another unit.
+- Once an order is placed for a product it is marked `ordered` and is never purchased
+  again; availability alerts for it continue to follow the rules above.
 
 State lives in `firstcry_state.json`, keyed by FirstCry product id (so URL variants of the
 same product cannot alert twice).
@@ -40,17 +39,20 @@ same product cannot alert twice).
 
 With `BUY_ENABLED=1` (set in the workflow), each run:
 
-1. Logs in via `https://www.firstcry.com/m/login` using `FIRSTCRY_PHONE`. The login
-   session is saved to `firstcry_session.json`, so OTP login is only needed again if
-   the session expires.
-2. For every available, not-yet-ordered product — sequentially, one order per product,
-   never combined — it empties the cart, adds the product, opens
-   `checkout.firstcry.com/checkout`, selects the saved address, prefers
-   Cash-on-Delivery if offered, and places the order.
-3. Whenever an OTP screen appears (login or order verification), it sends a Telegram
-   message asking for the code and polls your reply (up to `OTP_WAIT_S`, default 300s).
-   OTP prompts never name the product.
-4. A failed attempt (e.g. OTP not answered in time) waits `BUY_COOLDOWN_MINUTES`
+1. When a product is available, it logs in via `https://www.firstcry.com/m/login`
+   using `FIRSTCRY_PHONE`. The login session is saved to `firstcry_session.json`, so
+   OTP login is only needed again if the session expires.
+2. For every available, not-yet-ordered product — one order per product, never
+   combined — it empties the cart, adds the product, opens
+   `checkout.firstcry.com/checkout`, selects the saved address, leaves the default
+   (saved card) payment untouched, and places the order.
+3. Purchases run as background tasks in separate tabs, so availability checks keep
+   running meanwhile. Orders execute one at a time (`BUY_LOCK`) because the cart is
+   account-side — parallel checkouts could merge items into a single order.
+4. Whenever an OTP screen appears (login or card/order verification), it sends a
+   Telegram message asking for the code and polls your reply (up to `OTP_WAIT_S`,
+   default 300s). OTP prompts never name the product.
+5. A failed attempt (e.g. OTP not answered in time) waits `BUY_COOLDOWN_MINUTES`
    (default 30) before retrying, so your phone isn't spammed every 5 minutes.
 
 The session file is encrypted with `SESSION_SECRET` (`openssl aes-256-cbc`) into

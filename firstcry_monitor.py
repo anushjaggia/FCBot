@@ -423,10 +423,6 @@ def apply_result(
         entry["notified"] = False
         return entry, None
 
-    if entry.get("ordered"):
-        # Already bought once; never alert or reorder it again.
-        return entry, None
-
     if entry.get("notified"):
         return entry, None
 
@@ -442,6 +438,31 @@ def apply_result(
 
     budget[0] -= 1
     return entry, build_message(entry.get("label") or label, url, result.eta)
+
+
+BUY_LOCK = asyncio.Lock()
+buy_tasks: list[asyncio.Task] = []
+
+
+async def _buy_one(context: BrowserContext, pid: str, item: dict, entry: dict) -> None:
+    # Sequential under the lock: the cart is account-side, so parallel checkouts
+    # could merge items into one order.
+    async with BUY_LOCK:
+        log.info("Attempting purchase of %s (separate order).", item["label"])
+        ok, detail = await buyer.buy_product(context, item["url"], pid)
+        if ok:
+            entry["ordered"] = True
+            entry["order_id"] = detail
+            entry["ordered_at"] = now_iso()
+            buyer.notify(
+                "FirstCry order placed."
+                + (f" Order id: {detail}." if detail and detail != "confirmed" else "")
+            )
+        else:
+            buyer.set_buy_cooldown(entry)
+            log.warning("Purchase failed for %s: %s", item["label"], detail)
+            buyer.notify(f"FirstCry purchase attempt failed: {detail}. Will retry later.")
+        await buyer.save_session(context)
 
 
 async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> None:
@@ -473,7 +494,6 @@ async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> No
 
     budget = [MAX_NOTIFICATIONS_PER_RUN]
     pending: list[tuple[dict, str]] = []
-    buy_candidates: list[tuple[str, dict, dict]] = []
     counts = {"available": 0, "unavailable": 0, "unknown": 0}
 
     for pid, item, result in results:
@@ -489,27 +509,9 @@ async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> No
             and not entry.get("ordered")
             and not buyer.in_buy_cooldown(entry)
         ):
-            buy_candidates.append((pid, item, entry))
-
-    if buy_candidates:
-        for pid, item, entry in buy_candidates:
-            log.info("Attempting purchase of %s (separate order).", item["label"])
-            ok, detail = await buyer.buy_product(context, item["url"], pid)
-            if ok:
-                entry["ordered"] = True
-                entry["notified"] = True
-                entry["order_id"] = detail
-                entry["ordered_at"] = now_iso()
-                pending = [p for p in pending if p[0] is not entry]
-                buyer.notify(
-                    "FirstCry order placed."
-                    + (f" Order id: {detail}." if detail and detail != "confirmed" else "")
-                )
-            else:
-                buyer.set_buy_cooldown(entry)
-                log.warning("Purchase failed for %s: %s", item["label"], detail)
-                buyer.notify(f"FirstCry purchase attempt failed: {detail}. Will retry later.")
-            await buyer.save_session(context)
+            # Purchases run in the background so availability checks keep going;
+            # BUY_LOCK keeps them sequential because the cart is shared per account.
+            buy_tasks.append(asyncio.create_task(_buy_one(context, pid, item, entry)))
 
     sent = 0
     for entry, message in pending:
@@ -558,8 +560,6 @@ async def main() -> None:
 
         try:
             while True:
-                if BUY_ENABLED and not await buyer.ensure_logged_in(context):
-                    log.error("Not logged in; purchases will be skipped this run.")
                 await run_once(context, state, cold_start)
                 await buyer.save_session(context)
                 save_state(state)
@@ -568,6 +568,9 @@ async def main() -> None:
                     break
                 await asyncio.sleep(LOOP_INTERVAL_S)
         finally:
+            if buy_tasks:
+                log.info("Waiting for %d purchase(s) to finish.", len(buy_tasks))
+                await asyncio.gather(*buy_tasks, return_exceptions=True)
             save_state(state)
             await context.close()
             await browser.close()

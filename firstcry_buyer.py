@@ -338,17 +338,15 @@ async def _select_saved_address(page: Page) -> bool:
 
 
 async def _pay(page: Page) -> None:
-    """Pick a payment method and trigger the order."""
-    if await page.locator("#BtnCodPayNow").count() and await page.locator(
-        "#BtnCodPayNow"
-    ).first.is_visible():
-        log.info("Choosing Cash on Delivery.")
-        await page.locator("#BtnCodPayNow").first.click()
-        return
+    """Trigger the order with the account's default (saved card) payment method.
+
+    Payment method selection is deliberately left untouched: the card that is
+    already default stays selected and the bank/card OTP is relayed via Telegram.
+    """
     for sel in [
         "#BtnCardPayNow",
         "#cdPaynow",
-        "text=/^\\s*(pay now|place order|place cod|order now)/i",
+        "text=/^\\s*(pay now|place order|order now)/i",
     ]:
         loc = page.locator(sel)
         try:
@@ -394,6 +392,13 @@ async def buy_product(context: BrowserContext, url: str, pid: str) -> tuple[bool
     """Purchase a single product as its own order. Returns (ok, order_id_or_reason)."""
     page = await context.new_page()
     try:
+        # The account cart only exists after login, so authenticate before
+        # touching it; the OTP is relayed via Telegram.
+        if not await is_logged_in(page):
+            log.info("Not logged in; starting OTP login before purchase.")
+            if not await login_with_otp(page):
+                raise BuyError("login failed")
+
         if not await empty_cart(page):
             raise BuyError("could not empty the cart")
 

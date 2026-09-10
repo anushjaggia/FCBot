@@ -123,17 +123,17 @@ def test_buy_cooldown_roundtrip():
     assert b.in_buy_cooldown(entry) is False
 
 
-def test_ordered_product_never_alerts_again():
+URLX = "https://www.firstcry.com/hot-wheels/x/23930405/product-detail"
+
+
+def test_ordered_product_keeps_normal_alert_rules():
     items = {}
     result = m.CheckResult("available", "test")
     entry, _ = m.apply_result(items, "23930405", "Car", URLX, result, False, [10])
     entry["ordered"] = True
     entry["notified"] = True
-    # availability flips; still no message and notified stays set
+    # availability feature is unchanged by purchases: restock still alerts
     _, msg = m.apply_result(items, "23930405", "Car", URLX, m.CheckResult("unavailable", "t"), False, [10])
     assert msg is None
     _, msg = m.apply_result(items, "23930405", "Car", URLX, m.CheckResult("available", "t"), False, [10])
-    assert msg is None
-
-
-URLX = "https://www.firstcry.com/hot-wheels/x/23930405/product-detail"
+    assert msg is not None
