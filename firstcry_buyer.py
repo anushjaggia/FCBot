@@ -231,6 +231,10 @@ async def login_with_otp(page: Page) -> bool:
     """Mobile-number login; the OTP is requested from the user via Telegram."""
     if not FIRSTCRY_PHONE:
         log.error("FIRSTCRY_PHONE is not set; cannot log in.")
+        notify(
+            "FirstCry purchase needs the FIRSTCRY_PHONE secret "
+            "(repo Settings -> Secrets and variables -> Actions)."
+        )
         return False
 
     log.info("Logging in with mobile number ending %s.", FIRSTCRY_PHONE[-4:])
@@ -392,6 +396,11 @@ async def buy_product(context: BrowserContext, url: str, pid: str) -> tuple[bool
     """Purchase a single product as its own order. Returns (ok, order_id_or_reason)."""
     page = await context.new_page()
     try:
+        if not os.environ.get("SESSION_SECRET") and not session_available():
+            notify(
+                "SESSION_SECRET is not set, so the login session cannot persist "
+                "between runs - the bot would need a fresh OTP every run."
+            )
         # The account cart only exists after login, so authenticate before
         # touching it; the OTP is relayed via Telegram.
         if not await is_logged_in(page):
