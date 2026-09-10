@@ -17,6 +17,8 @@ from playwright.async_api import (
     async_playwright,
 )
 
+import firstcry_buyer as buyer
+
 # The products to watch. Add or remove entries here; nothing is discovered
 # automatically, so a run only costs as much as this list.
 PRODUCTS = [
@@ -70,6 +72,7 @@ PINCODE = os.environ.get("PINCODE", "201012")
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "6"))
 MAX_NOTIFICATIONS_PER_RUN = int(os.environ.get("MAX_NOTIFICATIONS_PER_RUN", "10"))
 STATE_FILE = os.environ.get("STATE_FILE", "firstcry_state.json")
+BUY_ENABLED = os.environ.get("BUY_ENABLED") == "1"
 RUN_ONCE = os.environ.get("RUN_ONCE") == "1"
 LOOP_INTERVAL_S = int(os.environ.get("LOOP_INTERVAL_S", "300"))
 STATE_VERSION = 2
@@ -420,6 +423,10 @@ def apply_result(
         entry["notified"] = False
         return entry, None
 
+    if entry.get("ordered"):
+        # Already bought once; never alert or reorder it again.
+        return entry, None
+
     if entry.get("notified"):
         return entry, None
 
@@ -466,6 +473,7 @@ async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> No
 
     budget = [MAX_NOTIFICATIONS_PER_RUN]
     pending: list[tuple[dict, str]] = []
+    buy_candidates: list[tuple[str, dict, dict]] = []
     counts = {"available": 0, "unavailable": 0, "unknown": 0}
 
     for pid, item, result in results:
@@ -475,6 +483,33 @@ async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> No
         )
         if message:
             pending.append((entry, message))
+        if (
+            BUY_ENABLED
+            and result.availability == "available"
+            and not entry.get("ordered")
+            and not buyer.in_buy_cooldown(entry)
+        ):
+            buy_candidates.append((pid, item, entry))
+
+    if buy_candidates:
+        for pid, item, entry in buy_candidates:
+            log.info("Attempting purchase of %s (separate order).", item["label"])
+            ok, detail = await buyer.buy_product(context, item["url"], pid)
+            if ok:
+                entry["ordered"] = True
+                entry["notified"] = True
+                entry["order_id"] = detail
+                entry["ordered_at"] = now_iso()
+                pending = [p for p in pending if p[0] is not entry]
+                buyer.notify(
+                    "FirstCry order placed."
+                    + (f" Order id: {detail}." if detail and detail != "confirmed" else "")
+                )
+            else:
+                buyer.set_buy_cooldown(entry)
+                log.warning("Purchase failed for %s: %s", item["label"], detail)
+                buyer.notify(f"FirstCry purchase attempt failed: {detail}. Will retry later.")
+            await buyer.save_session(context)
 
     sent = 0
     for entry, message in pending:
@@ -508,10 +543,13 @@ async def main() -> None:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            user_agent=USER_AGENT,
-        )
+        context_kwargs: dict = {
+            "viewport": {"width": 1280, "height": 900},
+            "user_agent": USER_AGENT,
+        }
+        if BUY_ENABLED and buyer.session_available():
+            context_kwargs["storage_state"] = buyer.SESSION_FILE
+        context = await browser.new_context(**context_kwargs)
         context.set_default_timeout(20000)
         await block_heavy_resources(context)
         await context.add_cookies(
@@ -520,7 +558,10 @@ async def main() -> None:
 
         try:
             while True:
+                if BUY_ENABLED and not await buyer.ensure_logged_in(context):
+                    log.error("Not logged in; purchases will be skipped this run.")
                 await run_once(context, state, cold_start)
+                await buyer.save_session(context)
                 save_state(state)
                 cold_start = False
                 if RUN_ONCE:

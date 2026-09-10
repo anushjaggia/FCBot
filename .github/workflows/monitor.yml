@@ -5,9 +5,15 @@ on:
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch: {}
 
+# Never run two passes at once: overlapping runs could double-order.
+concurrency:
+  group: firstcry-monitor
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -38,10 +44,49 @@ jobs:
           restore-keys: |
             firstcry-state-
 
+      - name: Restore FirstCry session
+        uses: actions/cache@v4
+        with:
+          path: firstcry_session.json.enc
+          key: firstcry-session-${{ github.run_id }}
+          restore-keys: |
+            firstcry-session-
+
+      - name: Decrypt FirstCry session
+        env:
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          if [ -f firstcry_session.json.enc ] && [ -n "$SESSION_SECRET" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 \
+              -in firstcry_session.json.enc -out firstcry_session.json \
+              -pass pass:"$SESSION_SECRET" || rm -f firstcry_session.json
+          fi
+
       - name: Check FirstCry
         run: python3 firstcry_monitor.py
-        timeout-minutes: 10
         env:
           RUN_ONCE: '1'
+          BUY_ENABLED: '1'
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FIRSTCRY_PHONE: ${{ secrets.FIRSTCRY_PHONE }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+
+      - name: Encrypt FirstCry session
+        if: always()
+        env:
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          if [ -f firstcry_session.json ] && [ -n "$SESSION_SECRET" ]; then
+            openssl enc -aes-256-cbc -pbkdf2 \
+              -in firstcry_session.json -out firstcry_session.json.enc \
+              -pass pass:"$SESSION_SECRET"
+          fi
+
+      - name: Upload checkout screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkout-debug
+          path: buy_*.png
+          if-no-files-found: ignore
