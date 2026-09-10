@@ -5,6 +5,12 @@ on:
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch: {}
 
+# Serialize runs so overlapping checks can't restore the same `notified`
+# state and send duplicate alerts.
+concurrency:
+  group: firstcry-monitor
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
