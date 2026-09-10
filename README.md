@@ -7,7 +7,7 @@ Telegram alert when a product is **in stock and deliverable to the configured pi
 ## What it checks
 
 - A fixed list of product pages, `PRODUCTS` at the top of `firstcry_monitor.py`
-  (2 Majorette + 9 Hot Wheels today). Add or remove entries there; nothing is
+  (3 Majorette + 16 Hot Wheels today). Add or remove entries there; nothing is
   discovered automatically.
 - Stock comes from the buy box: a visible `ADD TO CART` button means in stock, a visible
   `NOTIFY ME` button (or the sold-out overlay) means out of stock.
