@@ -29,6 +29,10 @@ PRODUCTS = [
         "url": "https://www.firstcry.com/majorette/majorette-mitsubishi-lancer-evolution-9-jdm-legends-premium-die-cast-car-off-white/24178926/product-detail",
     },
     {
+        "label": "Majorette Mercedes-AMG GT63 Deluxe Die-Cast - Grey",
+        "url": "https://www.firstcry.com/majorette/majorette-mercedes-amg-gt63-deluxe-die-cast-toy-car-grey/22063529/product-detail",
+    },
+    {
         "label": "Hot Wheels Pagani Utopia 1/5 Die-Cast - Red",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-pagani-utopia-1-5-die-cast-red/24342822/product-detail",
     },
