@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import requests
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import (
+    BrowserContext,
+    Page,
+    Response,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 MAJORETTE_PRODUCT_URLS = [
     {
-        "label": "TOYOTA SPRINTER",
+        "label": "Majorette Toyota Sprinter AE86 GT Apex JDM Legends",
         "url": "https://www.firstcry.com/majorette/majorette-toyota-ae86-gt-apex-jdm-legends-premium-die-cast-model-car-with-detailed-design-white/24178920/product-detail",
     },
     {
@@ -24,362 +33,533 @@ HOT_WHEELS_CATEGORY_URL = (
     "hot-wheels?cid=5&scid=94&type=t1-7973&brand=113"
 )
 
-HOT_WHEELS_MAX_SCROLLS = 6
-PINCODE = "201012"
+PINCODE = os.environ.get("PINCODE", "201012")
+HOT_WHEELS_MAX_SCROLLS = int(os.environ.get("HOT_WHEELS_MAX_SCROLLS", "8"))
+CONCURRENCY = int(os.environ.get("CONCURRENCY", "6"))
+MAX_NOTIFICATIONS_PER_RUN = int(os.environ.get("MAX_NOTIFICATIONS_PER_RUN", "10"))
+MAX_PRODUCTS = int(os.environ.get("MAX_PRODUCTS", "0"))  # 0 = no limit
+SKIP_HOT_WHEELS_DISCOVERY = os.environ.get("SKIP_HOT_WHEELS_DISCOVERY") == "1"
+STATE_FILE = os.environ.get("STATE_FILE", "firstcry_state.json")
+RUN_ONCE = os.environ.get("RUN_ONCE") == "1"
+LOOP_INTERVAL_S = int(os.environ.get("LOOP_INTERVAL_S", "300"))
+STATE_VERSION = 2
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "PASTE_TOKEN_HERE")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "PASTE_CHAT_ID_HERE")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-STATE_FILE = "firstcry_state.json"
 REQUEST_TIMEOUT = 15
+NAV_TIMEOUT_MS = 40000
+PRODUCT_DEADLINE_S = float(os.environ.get("PRODUCT_DEADLINE_S", "18"))
+POLL_INTERVAL_S = 0.4
+
+USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+BLOCKED_URL_PATTERNS = (
+    "google-analytics.com",
+    "analytics.google.com",
+    "googletagmanager.com",
+    "doubleclick.net",
+    "facebook.net",
+    "facebook.com",
+    "criteo.com",
+    "go-mpulse.net",
+    "clarity.ms",
+    "hotjar.com",
+)
+
+PRODUCT_ID_RE = re.compile(r"/(\d+)/product-detail")
+HOT_WHEELS_LABEL_RE = re.compile(r"^\s*hot\s*wheels?\b", re.I)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
 log = logging.getLogger("firstcry-monitor")
 
 
-def load_state() -> dict:
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+@dataclass
+class CheckResult:
+    availability: str  # "available" | "unavailable" | "unknown"
+    reason: str
+    eta: str = ""
+    title: str = ""
+
+
+def product_id(url: str) -> str | None:
+    match = PRODUCT_ID_RE.search(url)
+    return match.group(1) if match else None
+
+
+def canonical_url(url: str) -> str:
+    return url.split("?", 1)[0].split("#", 1)[0]
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def load_state() -> tuple[dict, bool]:
+    """Returns (state, is_cold_start)."""
+    if not os.path.exists(STATE_FILE):
+        return {"version": STATE_VERSION, "items": {}}, True
+
+    try:
+        with open(STATE_FILE) as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("Could not read %s (%s); starting from empty state.", STATE_FILE, e)
+        return {"version": STATE_VERSION, "items": {}}, True
+
+    if isinstance(raw, dict) and raw.get("version") == STATE_VERSION:
+        raw.setdefault("items", {})
+        return raw, not raw["items"]
+
+    # Migrate the legacy {url: "in_stock"} / {url: {...}} format, keyed by product id.
+    items: dict[str, dict] = {}
+    if isinstance(raw, dict):
+        for url, value in raw.items():
+            pid = product_id(str(url))
+            if not pid:
+                continue
+            if isinstance(value, dict):
+                was_available = value.get("status") == "in_stock" and value.get("deliverable")
+            else:
+                was_available = value == "in_stock"
+            items[pid] = {
+                "url": canonical_url(str(url)),
+                "label": "",
+                "notified": bool(was_available),
+                "last_availability": "available" if was_available else "unavailable",
+                "last_checked": "",
+            }
+    log.info("Migrated %d legacy state entries.", len(items))
+    return {"version": STATE_VERSION, "items": items}, False
 
 
 def save_state(state: dict) -> None:
     try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=2)
+        tmp = f"{STATE_FILE}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2, sort_keys=True)
+        os.replace(tmp, STATE_FILE)
     except OSError as e:
         log.error("Failed to save state: %s", e)
 
 
-def notify(message: str) -> None:
-    log.info(message)
+def send_telegram(message: str) -> bool:
+    log.info("NOTIFY: %s", message.replace("\n", " | "))
 
-    if "PASTE_" in TELEGRAM_BOT_TOKEN or "PASTE_" in TELEGRAM_CHAT_ID:
-        log.warning("Telegram is not configured.")
-        return
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        log.warning("Telegram is not configured; message not sent.")
+        return False
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-
     try:
         response = requests.post(
             url,
-            data={"chat_id": TELEGRAM_CHAT_ID, "text": message},
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "disable_web_page_preview": True,
+            },
             timeout=REQUEST_TIMEOUT,
         )
-
         if not response.ok:
-            log.error(
-                "Telegram returned HTTP %s: %s",
-                response.status_code,
-                response.text,
-            )
-
+            log.error("Telegram returned HTTP %s: %s", response.status_code, response.text)
+            return False
+        return True
     except requests.RequestException as e:
         log.error("Telegram send failed: %s", e)
-
-
-def check_delivery(page) -> bool:
-    try:
-        inputs = page.locator("input").all()
-        pin_input = None
-
-        for inp in inputs:
-            try:
-                placeholder = (inp.get_attribute("placeholder") or "").lower()
-                value = (inp.get_attribute("value") or "").lower()
-                name = (inp.get_attribute("name") or "").lower()
-
-                if (
-                    "pin" in placeholder
-                    or "pincode" in placeholder
-                    or "pin" in name
-                    or "pincode" in name
-                    or "enter pin code" in value
-                ):
-                    if inp.is_visible():
-                        pin_input = inp
-                        break
-            except Exception:
-                continue
-
-        if pin_input is None:
-            pin_input = page.get_by_placeholder(
-                "Enter Pin Code",
-                exact=False,
-            ).first
-
-        if not pin_input.is_visible():
-            log.warning("Could not find visible pincode input.")
-            return False
-
-        pin_input.fill(PINCODE)
-
-        check_button = pin_input.locator(
-            "xpath=following::button[normalize-space()='CHECK'][1]"
-        )
-
-        if check_button.count() == 0 or not check_button.first.is_visible():
-            check_button = page.get_by_text("CHECK", exact=True).last
-
-        check_button.click(timeout=5000)
-
-        page.wait_for_timeout(2500)
-
-        text = page.locator("body").inner_text(timeout=10000).upper()
-
-        unavailable_phrases = [
-            "NOT DELIVERABLE",
-            "NOT AVAILABLE FOR DELIVERY",
-            "DELIVERY NOT AVAILABLE",
-            "CANNOT BE DELIVERED",
-            "UNABLE TO DELIVER",
-            "NOT SERVICEABLE",
-        ]
-
-        available_phrases = [
-            "DELIVERY BY",
-            "GET IT BY",
-            "DELIVERED BY",
-            "DELIVERY AVAILABLE",
-        ]
-
-        if any(phrase in text for phrase in unavailable_phrases):
-            log.info("Pincode %s -> NOT DELIVERABLE", PINCODE)
-            return False
-
-        if any(phrase in text for phrase in available_phrases):
-            log.info("Pincode %s -> DELIVERABLE", PINCODE)
-            return True
-
-        log.warning(
-            "Could not determine delivery status for pincode %s.",
-            PINCODE,
-        )
-        return False
-
-    except Exception as e:
-        log.error("Pincode check failed: %s", e)
         return False
 
 
-def check_stock_and_delivery(
-    page,
-    url: str,
-    label: str,
-) -> tuple[str, bool]:
-    try:
-        page.goto(
-            url,
-            wait_until="domcontentloaded",
-            timeout=30000,
-        )
-        page.wait_for_timeout(5000)
+async def block_heavy_resources(context: BrowserContext) -> None:
+    async def route_handler(route):
+        request = route.request
+        if request.resource_type in BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+            return
+        if any(pattern in request.url for pattern in BLOCKED_URL_PATTERNS):
+            await route.abort()
+            return
+        await route.continue_()
 
+    await context.route("**/*", route_handler)
+
+
+def parse_delivery_payload(payload: dict) -> tuple[bool | None, str]:
+    """FirstCry's own serviceability API: IsServicable > 0 means orderable for the pincode."""
+    result = payload.get("Result")
+    if not isinstance(result, dict) or "IsServicable" not in result:
+        return None, ""
+
+    try:
+        servicable = int(result.get("IsServicable") or 0)
+    except (TypeError, ValueError):
+        return None, ""
+
+    eta = re.sub(r"<[^>]+>", "", str(result.get("ShippingDate") or "")).strip()
+    return servicable > 0, eta
+
+
+DELIVERABLE_TEXT_RE = re.compile(
+    r"GET IT BY|DELIVERY BY|DELIVERED BY|SAME DAY DELIVERY|NEXT DAY DELIVERY", re.I
+)
+UNDELIVERABLE_TEXT_RE = re.compile(
+    r"CAN.?T BE DELIVERED|CANNOT BE DELIVERED|NOT DELIVERABLE|NOT SERVICEABLE"
+    r"|NOT AVAILABLE FOR DELIVERY|DELIVERY NOT AVAILABLE",
+    re.I,
+)
+
+
+async def delivery_from_dom(page: Page) -> tuple[bool | None, str]:
+    """Fallback when the serviceability API response was not observed."""
+    section = page.locator("section.th-pincod")
+    try:
+        if await section.count() == 0 or not await section.first.is_visible():
+            return None, ""
+
+        pin_input = page.locator("section.th-pincod input.changepincode")
+        if await pin_input.count() > 0:
+            applied = (await pin_input.first.input_value()).strip()
+            if applied and applied != PINCODE:
+                log.warning("Page shows pincode %s instead of %s.", applied, PINCODE)
+                return None, ""
+
+        shipping = page.locator("section.th-pincod .shipping")
+        if await shipping.count() == 0 or not await shipping.first.is_visible():
+            return None, ""
+
+        text = (await shipping.first.inner_text()).strip()
     except PlaywrightTimeoutError:
-        log.warning("Page load timed out: %s", url)
+        return None, ""
 
-    except Exception as e:
-        log.error("Browser failed for %s: %s", url, e)
-        return "unknown", False
+    if UNDELIVERABLE_TEXT_RE.search(text):
+        return False, ""
+    if DELIVERABLE_TEXT_RE.search(text):
+        return True, text.split("\n")[0]
+    return None, ""
 
+
+PAGE_SIGNALS_JS = """() => {
+    const visible = (el) => !!(el && (el.offsetParent !== null || el.getClientRects().length > 0));
+    const heading = document.querySelector('h1');
+    return {
+        addToCart: visible(document.querySelector('.acartGcartBtn .add_to_cart')),
+        notifyMe: visible(document.querySelector('.notifymeBtn')),
+        soldOut: visible(document.querySelector('.oosbg')),
+        title: heading ? heading.innerText.trim().slice(0, 120) : '',
+    };
+}"""
+
+
+async def read_page_signals(page: Page) -> dict:
+    """Stock is read from the buy box: ADD TO CART vs the NOTIFY ME button."""
     try:
-        upper_text = page.locator("body").inner_text(timeout=10000).upper()
+        signals = await page.evaluate(PAGE_SIGNALS_JS)
+    except Exception:
+        return {"in_stock": None, "title": ""}
 
-    except Exception as e:
-        log.error("Could not read page for %s: %s", label, e)
-        return "unknown", False
-
-    add_visible = "ADD TO CART" in upper_text
-    notify_visible = "NOTIFY ME" in upper_text
-
-    if notify_visible and not add_visible:
-        log.info("%s -> OUT OF STOCK", label)
-        return "out_of_stock", False
-
-    if not add_visible:
-        log.warning("%s -> could not determine stock status", label)
-        return "unknown", False
-
-    log.info("%s -> IN STOCK", label)
-
-    deliverable = check_delivery(page)
-
-    if not deliverable:
-        log.info(
-            "%s -> IN STOCK but not deliverable to %s",
-            label,
-            PINCODE,
-        )
-
-    return "in_stock", deliverable
+    if signals.get("addToCart"):
+        in_stock: bool | None = True
+    elif signals.get("notifyMe") or signals.get("soldOut"):
+        in_stock = False
+    else:
+        in_stock = None
+    return {"in_stock": in_stock, "title": signals.get("title") or ""}
 
 
-def discover_hotwheels_products(page) -> list[dict]:
-    try:
-        page.goto(
-            HOT_WHEELS_CATEGORY_URL,
-            wait_until="domcontentloaded",
-            timeout=30000,
-        )
-        page.wait_for_timeout(3000)
+async def check_product(context: BrowserContext, url: str, label: str) -> CheckResult:
+    pid = product_id(url)
+    page = await context.new_page()
+    delivery_seen = asyncio.Event()
+    delivery: dict = {}
 
-    except Exception as e:
-        log.error("Could not load Hot Wheels category page: %s", e)
-        return []
-
-    for _ in range(HOT_WHEELS_MAX_SCROLLS):
+    async def on_response(response: Response) -> None:
+        if "checkdeliveryinfo" not in response.url:
+            return
+        post_data = response.request.post_data or ""
+        if PINCODE not in post_data:
+            return
+        if pid and f'"{pid}"' not in post_data and pid not in post_data:
+            return
         try:
-            page.mouse.wheel(0, 4000)
-            page.wait_for_timeout(1500)
+            payload = await response.json()
+        except Exception:
+            return
+        deliverable, eta = parse_delivery_payload(payload)
+        if deliverable is None:
+            return
+        delivery["deliverable"] = deliverable
+        delivery["eta"] = eta
+        delivery_seen.set()
 
-            for text in ("Load More", "Show More", "View More"):
-                btn = page.get_by_text(text, exact=False)
+    page.on("response", on_response)
 
-                if btn.count() > 0 and btn.first.is_visible():
-                    btn.first.click(timeout=2000)
-                    page.wait_for_timeout(1500)
+    try:
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        except PlaywrightTimeoutError:
+            log.warning("Navigation timed out: %s", url)
 
+        # Stop as soon as the page has answered both questions instead of waiting
+        # a fixed amount of time on every product.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + PRODUCT_DEADLINE_S
+        in_stock: bool | None = None
+        title = ""
+        while True:
+            signals = await read_page_signals(page)
+            in_stock = signals["in_stock"]
+            title = signals["title"] or title
+            if in_stock is False:
+                break  # out of stock: delivery is irrelevant
+            if in_stock is True and delivery_seen.is_set():
+                break
+            if loop.time() >= deadline:
+                break
+            await asyncio.sleep(POLL_INTERVAL_S)
+
+        if "deliverable" in delivery:
+            deliverable, eta = delivery["deliverable"], delivery.get("eta", "")
+        else:
+            deliverable, eta = await delivery_from_dom(page)
+    except Exception as e:  # navigation/browser level failure
+        log.error("Check failed for %s: %s", label or url, e)
+        return CheckResult("unknown", f"error: {e}")
+    finally:
+        try:
+            await page.close()
         except Exception:
             pass
 
+    if in_stock is False:
+        return CheckResult("unavailable", "out of stock", title=title)
+    if deliverable is False:
+        reason = (
+            f"in stock, not deliverable to {PINCODE}"
+            if in_stock is True
+            else f"not orderable for {PINCODE} (out of stock or not serviceable)"
+        )
+        return CheckResult("unavailable", reason, title=title)
+    if in_stock is True and deliverable is True:
+        return CheckResult("available", "in stock and deliverable", eta, title)
+    if in_stock is True:
+        return CheckResult("unknown", "in stock, delivery undetermined", title=title)
+    return CheckResult("unknown", "stock undetermined", title=title)
+
+
+async def discover_hotwheels_products(context: BrowserContext) -> list[dict]:
+    page = await context.new_page()
     try:
-        raw_links = page.eval_on_selector_all(
+        await page.goto(HOT_WHEELS_CATEGORY_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        await page.wait_for_timeout(3000)
+
+        for _ in range(HOT_WHEELS_MAX_SCROLLS):
+            await page.mouse.wheel(0, 4000)
+            await page.wait_for_timeout(1200)
+            for text in ("Load More", "Show More", "View More"):
+                button = page.get_by_text(text, exact=False)
+                try:
+                    if await button.count() > 0 and await button.first.is_visible():
+                        await button.first.click(timeout=2000)
+                        await page.wait_for_timeout(1500)
+                except Exception:
+                    continue
+
+        # Only anchors carrying the product name (title attribute or image alt) are
+        # real listing cards; the rest are variant/related links with borrowed slugs.
+        raw_links = await page.eval_on_selector_all(
             "a[href*='/product-detail']",
-            "els => els.map(el => ({href: el.href, text: el.innerText}))",
+            """els => els.map(el => {
+                const img = el.querySelector('img');
+                return {
+                    href: el.href,
+                    text: el.getAttribute('title') || (img && (img.alt || img.title)) || '',
+                };
+            }).filter(entry => entry.text.trim())""",
         )
-
     except Exception as e:
-        log.error("Could not read product links: %s", e)
+        log.error("Could not read the Hot Wheels category page: %s", e)
         return []
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
 
-    discovered = {}
-
+    discovered: dict[str, dict] = {}
     for entry in raw_links:
-        href = entry.get("href") or ""
-
-        if "/hot-wheels/" not in href:
+        href = canonical_url(entry.get("href") or "")
+        pid = product_id(href)
+        if not pid or pid in discovered:
             continue
-
-        if href in discovered:
+        label = (entry.get("text") or "").strip().split("\n")[0]
+        if not HOT_WHEELS_LABEL_RE.match(label):
             continue
+        discovered[pid] = {"label": label[:100], "url": href}
 
-        text = (entry.get("text") or "").strip().split("\n")[0]
-
-        discovered[href] = (
-            text[:80]
-            if text
-            else href.rsplit("/", 2)[-2].replace("-", " ")
-        )
-
-    log.info(
-        "Discovered %d Hot Wheels product page(s).",
-        len(discovered),
-    )
-
-    return [
-        {"label": label, "url": url}
-        for url, label in discovered.items()
-    ]
+    log.info("Discovered %d Hot Wheels product page(s).", len(discovered))
+    return list(discovered.values())
 
 
-def process_item(
-    page,
-    state: dict,
-    url: str,
+def build_message(label: str, url: str, eta: str) -> str:
+    lines = [f"🚀 IN STOCK + DELIVERABLE: {label}", f"Pincode: {PINCODE}"]
+    if eta:
+        lines.append(eta)
+    lines.append(url)
+    return "\n".join(lines)
+
+
+def apply_result(
+    state_items: dict,
+    pid: str,
     label: str,
-) -> None:
-    status, deliverable = check_stock_and_delivery(
-        page,
-        url,
-        label,
+    url: str,
+    result: CheckResult,
+    cold_start: bool,
+    budget: list[int],
+) -> tuple[dict, str | None]:
+    """Updates state and returns (state entry, message to send if any)."""
+    url = canonical_url(url)
+    entry = state_items.setdefault(
+        pid,
+        {"url": url, "label": label, "notified": False, "last_availability": "", "last_checked": ""},
     )
+    entry["url"] = url
+    if result.title:
+        entry["label"] = result.title
+    elif label and not entry.get("label"):
+        entry["label"] = label
+    entry["last_checked"] = now_iso()
 
-    if status == "unknown":
-        return
+    if result.availability == "unknown":
+        # Never let a failed/ambiguous check reset the notification memory.
+        entry["last_availability"] = entry.get("last_availability", "")
+        return entry, None
 
-    previous = state.get(url)
+    entry["last_availability"] = result.availability
 
-    if isinstance(previous, dict):
-        previous_status = previous.get("status")
-        previous_deliverable = previous.get("deliverable", False)
-    else:
-        previous_status = previous
-        previous_deliverable = False
+    if result.availability == "unavailable":
+        entry["notified"] = False
+        return entry, None
 
-    current_available = (
-        status == "in_stock"
-        and deliverable
-    )
+    if entry.get("notified"):
+        return entry, None
 
-    previous_available = (
-        previous_status == "in_stock"
-        and previous_deliverable
-    )
+    if cold_start:
+        # First run with no memory: record availability without a burst of alerts.
+        entry["notified"] = True
+        entry["last_notified"] = now_iso()
+        return entry, None
 
-    if current_available and not previous_available:
-        notify(
-            f"🚀 IN STOCK + DELIVERABLE: {label}\n"
-            f"Pincode: {PINCODE}\n"
-            f"{url}"
+    if budget[0] <= 0:
+        log.warning("Notification budget exhausted; %s will be reported next run.", label)
+        return entry, None
+
+    budget[0] -= 1
+    return entry, build_message(entry.get("label") or label, url, result.eta)
+
+
+async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> None:
+    items = list(MAJORETTE_PRODUCT_URLS)
+    if not SKIP_HOT_WHEELS_DISCOVERY:
+        items += await discover_hotwheels_products(context)
+
+    seen: dict[str, dict] = {}
+    for item in items:
+        pid = product_id(item["url"])
+        if pid and pid not in seen:
+            seen[pid] = {"label": item["label"], "url": canonical_url(item["url"])}
+
+    if MAX_PRODUCTS > 0:
+        seen = dict(list(seen.items())[:MAX_PRODUCTS])
+
+    log.info("Checking %d product(s) for pincode %s.", len(seen), PINCODE)
+
+    semaphore = asyncio.Semaphore(CONCURRENCY)
+
+    async def worker(pid: str, item: dict) -> tuple[str, dict, CheckResult]:
+        async with semaphore:
+            result = await check_product(context, item["url"], item["label"])
+            log.info(
+                "%s -> %s (%s)",
+                result.title or item["label"],
+                result.availability.upper(),
+                result.reason,
+            )
+            return pid, item, result
+
+    results = await asyncio.gather(*(worker(pid, item) for pid, item in seen.items()))
+
+    budget = [MAX_NOTIFICATIONS_PER_RUN]
+    pending: list[tuple[dict, str]] = []
+    counts = {"available": 0, "unavailable": 0, "unknown": 0}
+
+    for pid, item, result in results:
+        counts[result.availability] += 1
+        entry, message = apply_result(
+            state["items"], pid, item["label"], item["url"], result, cold_start, budget
         )
+        if message:
+            pending.append((entry, message))
 
-    state[url] = {
-        "status": status,
-        "deliverable": deliverable,
-    }
+    sent = 0
+    for entry, message in pending:
+        if not send_telegram(message):
+            # Keep `notified` false so the alert is retried on the next run.
+            break
+        entry["notified"] = True
+        entry["last_notified"] = now_iso()
+        sent += 1
 
-
-def main() -> None:
-    run_once = os.environ.get("RUN_ONCE") == "1"
-    state = load_state()
+    if cold_start and counts["available"]:
+        send_telegram(
+            f"FirstCry monitor started tracking {len(seen)} product(s) for pincode {PINCODE}. "
+            f"{counts['available']} are already in stock and deliverable; "
+            "you will be alerted when anything new becomes available."
+        )
 
     log.info(
-        "Watching %d Majorette item(s) and auto-discovered Hot Wheels listings.",
-        len(MAJORETTE_PRODUCT_URLS),
+        "Run summary: %d available, %d unavailable, %d undetermined, %d alert(s) sent.",
+        counts["available"],
+        counts["unavailable"],
+        counts["unknown"],
+        sent,
     )
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
 
-        context = browser.new_context(
+async def main() -> None:
+    state, cold_start = load_state()
+    if cold_start:
+        log.info("No previous state found; this run establishes the baseline.")
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
             viewport={"width": 1280, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0 Safari/537.36"
-            ),
+            user_agent=USER_AGENT,
+        )
+        context.set_default_timeout(20000)
+        await block_heavy_resources(context)
+        await context.add_cookies(
+            [{"name": "globalPincode", "value": PINCODE, "domain": ".firstcry.com", "path": "/"}]
         )
 
-        page = context.new_page()
-
-        while True:
-            for item in MAJORETTE_PRODUCT_URLS:
-                process_item(
-                    page,
-                    state,
-                    item["url"],
-                    item["label"],
-                )
-
-            for item in discover_hotwheels_products(page):
-                process_item(
-                    page,
-                    state,
-                    item["url"],
-                    item["label"],
-                )
-
+        try:
+            while True:
+                await run_once(context, state, cold_start)
+                save_state(state)
+                cold_start = False
+                if RUN_ONCE:
+                    break
+                await asyncio.sleep(LOOP_INTERVAL_S)
+        finally:
             save_state(state)
-
-            if run_once:
-                break
-
-        browser.close()
+            await context.close()
+            await browser.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
