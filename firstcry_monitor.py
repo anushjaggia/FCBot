@@ -64,6 +64,38 @@ PRODUCTS = [
         "label": "Hot Wheels Street Shaker (202/250) - Blue",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-street-shaker-toy-car-202-250-with-free-wheel-feature-blue/24246594/product-detail",
     },
+    {
+        "label": "Hot Wheels '20 Dodge Charger Hellcat (134/250) - Grey",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-20-dodge-charger-hellcat-134-250-die-cast-toy-car-grey/22548066/product-detail",
+    },
+    {
+        "label": "Hot Wheels '07 Honda Civic Type R Kousoku Hauler - White",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheels-07-honda-civic-type-r-kousoku-hauler-camion-de-transport-silver-car-transport-truck-white/22848387/product-detail",
+    },
+    {
+        "label": "Hot Wheels Color Shifters Nissan Skyline GT-R R32 - Red",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-color-shifters-nissan-skyline-gt-r-r32-car-toy-red/21252872/product-detail",
+    },
+    {
+        "label": "Hot Wheels Premium Fast & Furious Lexus LFA - Grey",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-cars-die-cast-models-premium-fast-and-furious-lexus-lfa-car-for-adult-collectors-grey/24390966/product-detail",
+    },
+    {
+        "label": "Hot Wheels Premium Fast & Furious Mercedes-Benz SLS AMG Coupe Black Series - White",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-cars-premium-fast-and-furious-mercedes-benz-sls-amg-coupe-black-series-serie-car-for-adult-collectors-white/24390963/product-detail",
+    },
+    {
+        "label": "Hot Wheels 1970 Dodge Charger R/T - Grey",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheel-1970-dodge-charger-r-t-l-grey/24342828/product-detail",
+    },
+    {
+        "label": "Hot Wheels Silver Series Zamac - Silver",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-silver-series-zamac-die-cast-free-wheel-toy-car-silver/22912948/product-detail",
+    },
+    {
+        "label": "Hot Wheels Ferrari LaFerrari 5/5 - Yellow",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-laferrari-5-5-die-cast-model-car-yellow/24342821/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
