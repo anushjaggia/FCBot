@@ -17,8 +17,6 @@ from playwright.async_api import (
     async_playwright,
 )
 
-import firstcry_buyer as buyer
-
 # The products to watch. Add or remove entries here; nothing is discovered
 # automatically, so a run only costs as much as this list.
 PRODUCTS = [
@@ -72,7 +70,6 @@ PINCODE = os.environ.get("PINCODE", "201012")
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "6"))
 MAX_NOTIFICATIONS_PER_RUN = int(os.environ.get("MAX_NOTIFICATIONS_PER_RUN", "10"))
 STATE_FILE = os.environ.get("STATE_FILE", "firstcry_state.json")
-BUY_ENABLED = os.environ.get("BUY_ENABLED") == "1"
 RUN_ONCE = os.environ.get("RUN_ONCE") == "1"
 LOOP_INTERVAL_S = int(os.environ.get("LOOP_INTERVAL_S", "300"))
 STATE_VERSION = 2
@@ -440,31 +437,6 @@ def apply_result(
     return entry, build_message(entry.get("label") or label, url, result.eta)
 
 
-BUY_LOCK = asyncio.Lock()
-buy_tasks: list[asyncio.Task] = []
-
-
-async def _buy_one(context: BrowserContext, pid: str, item: dict, entry: dict) -> None:
-    # Sequential under the lock: the cart is account-side, so parallel checkouts
-    # could merge items into one order.
-    async with BUY_LOCK:
-        log.info("Attempting purchase of %s (separate order).", item["label"])
-        ok, detail = await buyer.buy_product(context, item["url"], pid)
-        if ok:
-            entry["ordered"] = True
-            entry["order_id"] = detail
-            entry["ordered_at"] = now_iso()
-            buyer.notify(
-                "FirstCry order placed."
-                + (f" Order id: {detail}." if detail and detail != "confirmed" else "")
-            )
-        else:
-            buyer.set_buy_cooldown(entry)
-            log.warning("Purchase failed for %s: %s", item["label"], detail)
-            buyer.notify(f"FirstCry purchase attempt failed: {detail}. Will retry later.")
-        await buyer.save_session(context)
-
-
 async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> None:
     seen: dict[str, dict] = {}
     for item in PRODUCTS:
@@ -503,15 +475,6 @@ async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> No
         )
         if message:
             pending.append((entry, message))
-        if (
-            BUY_ENABLED
-            and result.availability == "available"
-            and not entry.get("ordered")
-            and not buyer.in_buy_cooldown(entry)
-        ):
-            # Purchases run in the background so availability checks keep going;
-            # BUY_LOCK keeps them sequential because the cart is shared per account.
-            buy_tasks.append(asyncio.create_task(_buy_one(context, pid, item, entry)))
 
     sent = 0
     for entry, message in pending:
@@ -545,13 +508,10 @@ async def main() -> None:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context_kwargs: dict = {
-            "viewport": {"width": 1280, "height": 900},
-            "user_agent": USER_AGENT,
-        }
-        if BUY_ENABLED and buyer.session_available():
-            context_kwargs["storage_state"] = buyer.SESSION_FILE
-        context = await browser.new_context(**context_kwargs)
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            user_agent=USER_AGENT,
+        )
         context.set_default_timeout(20000)
         await block_heavy_resources(context)
         await context.add_cookies(
@@ -561,16 +521,12 @@ async def main() -> None:
         try:
             while True:
                 await run_once(context, state, cold_start)
-                await buyer.save_session(context)
                 save_state(state)
                 cold_start = False
                 if RUN_ONCE:
                     break
                 await asyncio.sleep(LOOP_INTERVAL_S)
         finally:
-            if buy_tasks:
-                log.info("Waiting for %d purchase(s) to finish.", len(buy_tasks))
-                await asyncio.gather(*buy_tasks, return_exceptions=True)
             save_state(state)
             await context.close()
             await browser.close()
