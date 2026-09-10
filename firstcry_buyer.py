@@ -130,10 +130,14 @@ def session_available() -> bool:
     return os.path.exists(SESSION_FILE) and os.path.getsize(SESSION_FILE) > 50
 
 
-async def save_session(context: BrowserContext) -> None:
+async def save_session(context: BrowserContext, logged_in: bool = False) -> None:
     try:
         await context.storage_state(path=SESSION_FILE)
-        log.info("Saved login session to %s.", SESSION_FILE)
+        log.info(
+            "Saved %s to %s.",
+            "login session" if logged_in else "anonymous browser state",
+            SESSION_FILE,
+        )
     except Exception as e:
         log.warning("Could not save session: %s", e)
 
@@ -252,7 +256,7 @@ async def login_with_otp(page: Page) -> bool:
 
         logged_in = await is_logged_in(page)
         if logged_in:
-            await save_session(page.context)
+            await save_session(page.context, logged_in=True)
         else:
             log.warning("Login flow finished but session does not look logged in.")
         return logged_in
