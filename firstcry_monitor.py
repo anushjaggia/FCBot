@@ -17,7 +17,9 @@ from playwright.async_api import (
     async_playwright,
 )
 
-MAJORETTE_PRODUCT_URLS = [
+# The products to watch. Add or remove entries here; nothing is discovered
+# automatically, so a run only costs as much as this list.
+PRODUCTS = [
     {
         "label": "Majorette Toyota Sprinter AE86 GT Apex JDM Legends",
         "url": "https://www.firstcry.com/majorette/majorette-toyota-ae86-gt-apex-jdm-legends-premium-die-cast-model-car-with-detailed-design-white/24178920/product-detail",
@@ -26,19 +28,47 @@ MAJORETTE_PRODUCT_URLS = [
         "label": "Majorette Mitsubishi Lancer Evolution 9 JDM Legends",
         "url": "https://www.firstcry.com/majorette/majorette-mitsubishi-lancer-evolution-9-jdm-legends-premium-die-cast-car-off-white/24178926/product-detail",
     },
+    {
+        "label": "Hot Wheels Pagani Utopia 1/5 Die-Cast - Red",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-pagani-utopia-1-5-die-cast-red/24342822/product-detail",
+    },
+    {
+        "label": "Hot Wheels Premium Fast & Furious Toyota Supra - Orange",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-cars-die-cast-free-wheel-premium-fast-and-furious-toyota-supra-car-for-adult-collectors-orange/24390965/product-detail",
+    },
+    {
+        "label": "Hot Wheels 1995 Mitsubishi Eclipse - Grey",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheel-1995-mitsubishi-eclipse-car-grey/24342826/product-detail",
+    },
+    {
+        "label": "Hot Wheels Premium Collector Display Set, 3 Cars & 1 Transporter",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-premium-collector-display-set-3-cars-and-1-transporter-sky-blue/24323023/product-detail",
+    },
+    {
+        "label": "Hot Wheels Lamborghini Veneno - Black",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-lamborghini-veneno-die-cast-model-car-black/24342823/product-detail",
+    },
+    {
+        "label": "Hot Wheels Euro Style Die Cast Pack of 6",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-euro-style-die-cast-free-wheel-toy-car-pack-of-6-multicolor/23700381/product-detail",
+    },
+    {
+        "label": "Hot Wheels Silver Series 1/5 Lamborghini Countach LP 500 QV - White",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-1-5-silver-series-vintage-club-lamborghini-countach-lp-500-qv-die-cast-car-white/24390971/product-detail",
+    },
+    {
+        "label": "Hot Wheels Silver Series 5/5 Mercedes-Benz 300 SL - Pista",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-models-5-5-silver-series-vintage-club-mercedes-benz-300-sl-die-cast-car-pista/24390967/product-detail",
+    },
+    {
+        "label": "Hot Wheels Street Shaker (202/250) - Blue",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-street-shaker-toy-car-202-250-with-free-wheel-feature-blue/24246594/product-detail",
+    },
 ]
 
-HOT_WHEELS_CATEGORY_URL = (
-    "https://www.firstcry.com/toy-cars,-trains-and-vehicles/cars-and-jeeps/"
-    "hot-wheels?cid=5&scid=94&type=t1-7973&brand=113"
-)
-
 PINCODE = os.environ.get("PINCODE", "201012")
-HOT_WHEELS_MAX_SCROLLS = int(os.environ.get("HOT_WHEELS_MAX_SCROLLS", "8"))
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "6"))
 MAX_NOTIFICATIONS_PER_RUN = int(os.environ.get("MAX_NOTIFICATIONS_PER_RUN", "10"))
-MAX_PRODUCTS = int(os.environ.get("MAX_PRODUCTS", "0"))  # 0 = no limit
-SKIP_HOT_WHEELS_DISCOVERY = os.environ.get("SKIP_HOT_WHEELS_DISCOVERY") == "1"
 STATE_FILE = os.environ.get("STATE_FILE", "firstcry_state.json")
 RUN_ONCE = os.environ.get("RUN_ONCE") == "1"
 LOOP_INTERVAL_S = int(os.environ.get("LOOP_INTERVAL_S", "300"))
@@ -72,7 +102,6 @@ BLOCKED_URL_PATTERNS = (
 )
 
 PRODUCT_ID_RE = re.compile(r"/(\d+)/product-detail")
-HOT_WHEELS_LABEL_RE = re.compile(r"^\s*hot\s*wheels?\b", re.I)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
 log = logging.getLogger("firstcry-monitor")
@@ -350,60 +379,6 @@ async def check_product(context: BrowserContext, url: str, label: str) -> CheckR
     return CheckResult("unknown", "stock undetermined", title=title)
 
 
-async def discover_hotwheels_products(context: BrowserContext) -> list[dict]:
-    page = await context.new_page()
-    try:
-        await page.goto(HOT_WHEELS_CATEGORY_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-        await page.wait_for_timeout(3000)
-
-        for _ in range(HOT_WHEELS_MAX_SCROLLS):
-            await page.mouse.wheel(0, 4000)
-            await page.wait_for_timeout(1200)
-            for text in ("Load More", "Show More", "View More"):
-                button = page.get_by_text(text, exact=False)
-                try:
-                    if await button.count() > 0 and await button.first.is_visible():
-                        await button.first.click(timeout=2000)
-                        await page.wait_for_timeout(1500)
-                except Exception:
-                    continue
-
-        # Only anchors carrying the product name (title attribute or image alt) are
-        # real listing cards; the rest are variant/related links with borrowed slugs.
-        raw_links = await page.eval_on_selector_all(
-            "a[href*='/product-detail']",
-            """els => els.map(el => {
-                const img = el.querySelector('img');
-                return {
-                    href: el.href,
-                    text: el.getAttribute('title') || (img && (img.alt || img.title)) || '',
-                };
-            }).filter(entry => entry.text.trim())""",
-        )
-    except Exception as e:
-        log.error("Could not read the Hot Wheels category page: %s", e)
-        return []
-    finally:
-        try:
-            await page.close()
-        except Exception:
-            pass
-
-    discovered: dict[str, dict] = {}
-    for entry in raw_links:
-        href = canonical_url(entry.get("href") or "")
-        pid = product_id(href)
-        if not pid or pid in discovered:
-            continue
-        label = (entry.get("text") or "").strip().split("\n")[0]
-        if not HOT_WHEELS_LABEL_RE.match(label):
-            continue
-        discovered[pid] = {"label": label[:100], "url": href}
-
-    log.info("Discovered %d Hot Wheels product page(s).", len(discovered))
-    return list(discovered.values())
-
-
 def build_message(label: str, url: str, eta: str) -> str:
     lines = [f"🚀 IN STOCK + DELIVERABLE: {label}", f"Pincode: {PINCODE}"]
     if eta:
@@ -463,18 +438,14 @@ def apply_result(
 
 
 async def run_once(context: BrowserContext, state: dict, cold_start: bool) -> None:
-    items = list(MAJORETTE_PRODUCT_URLS)
-    if not SKIP_HOT_WHEELS_DISCOVERY:
-        items += await discover_hotwheels_products(context)
-
     seen: dict[str, dict] = {}
-    for item in items:
+    for item in PRODUCTS:
         pid = product_id(item["url"])
-        if pid and pid not in seen:
+        if not pid:
+            log.warning("Skipping URL without a product id: %s", item["url"])
+            continue
+        if pid not in seen:
             seen[pid] = {"label": item["label"], "url": canonical_url(item["url"])}
-
-    if MAX_PRODUCTS > 0:
-        seen = dict(list(seen.items())[:MAX_PRODUCTS])
 
     log.info("Checking %d product(s) for pincode %s.", len(seen), PINCODE)
 
