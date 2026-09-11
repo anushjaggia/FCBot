@@ -1,12 +1,12 @@
 name: FirstCry stock monitor
 
 on:
-  schedule:
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch: {}
 
-# Serialize runs so overlapping checks can't restore the same `notified`
-# state and send duplicate alerts.
+permissions:
+  actions: write
+  contents: read
+
 concurrency:
   group: firstcry-monitor
   cancel-in-progress: false
@@ -51,3 +51,11 @@ jobs:
           RUN_ONCE: '1'
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Start next run
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run "${{ github.workflow }}" \
+            --ref "${{ github.ref_name }}"
