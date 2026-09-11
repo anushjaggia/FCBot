@@ -104,6 +104,10 @@ PRODUCTS = [
         "label": "Matchbox 1968 Ford Mustang Fastback - Green",
         "url": "https://www.firstcry.com/matchbox/match-box-1968-ford-mustang-fastback-car-green/24382815/product-detail",
     },
+    {
+        "label": "Hot Wheels Honda Odyssey (149/250) - Blue",
+        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-149-250-honda-odyssey-die-cat-free-wheel-toy-car-blue/23348662/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
