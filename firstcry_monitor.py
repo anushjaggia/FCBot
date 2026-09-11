@@ -96,6 +96,14 @@ PRODUCTS = [
         "label": "Hot Wheels Ferrari LaFerrari 5/5 - Yellow",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-laferrari-5-5-die-cast-model-car-yellow/24342821/product-detail",
     },
+    {
+        "label": "Matchbox 2023 Toyota GR Supra - Grey",
+        "url": "https://www.firstcry.com/matchbox/match-box-2023-toyota-gr-supra-car-grey/24382820/product-detail",
+    },
+    {
+        "label": "Matchbox 1968 Ford Mustang Fastback - Green",
+        "url": "https://www.firstcry.com/matchbox/match-box-1968-ford-mustang-fastback-car-green/24382815/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
