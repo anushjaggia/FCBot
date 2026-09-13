@@ -120,10 +120,6 @@ PRODUCTS = [
     "name": "Hot Wheels Scuderia Ferrari HP (120/250) - Red & Black",
     "url": "https://www.firstcry.com/hot-wheels/hot-wheels-scuderia-ferrarii-hp-120-250-die-cast-toy-car-red-and-black/22548067/product-detail",
     },
-    {
-    "name": "Hot Wheels Premium Collector Display Set, 3 Cars & 1 Transporter - Sky Blue",
-    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-premium-collector-display-set-3-cars-and-1-transporter-sky-blue/24323023/product-detail",
-    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
