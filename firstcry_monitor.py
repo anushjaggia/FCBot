@@ -108,6 +108,22 @@ PRODUCTS = [
         "label": "Hot Wheels Honda Odyssey (149/250) - Blue",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-149-250-honda-odyssey-die-cat-free-wheel-toy-car-blue/23348662/product-detail",
     },
+    {
+    "name": "Hot Wheels Formula 1 Toy Cars 10 Pack - Multicolor",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-formula-1-toy-cars-10-pack-1-64-scale-die-cast-free-wheel-race-cars-multicolor/24194173/product-detail",
+    },
+    {
+    "name": "Hot Wheels 1989 Mercedes-Benz 560 SEC AMG - White",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-1989-mercedes-benz-560-sec-amg-die-cast-free-wheel-toy-car-white/24390955/product-detail",
+    },
+    {
+    "name": "Hot Wheels Scuderia Ferrari HP (120/250) - Red & Black",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-scuderia-ferrarii-hp-120-250-die-cast-toy-car-red-and-black/22548067/product-detail",
+    },
+    {
+    "name": "Hot Wheels Premium Collector Display Set, 3 Cars & 1 Transporter - Sky Blue",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-premium-collector-display-set-3-cars-and-1-transporter-sky-blue/24323023/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
