@@ -29,20 +29,8 @@ PRODUCTS = [
         "url": "https://www.firstcry.com/majorette/majorette-mitsubishi-lancer-evolution-9-jdm-legends-premium-die-cast-car-off-white/24178926/product-detail",
     },
     {
-        "label": "Majorette Mercedes-AMG GT63 Deluxe Die-Cast - Grey",
-        "url": "https://www.firstcry.com/majorette/majorette-mercedes-amg-gt63-deluxe-die-cast-toy-car-grey/22063529/product-detail",
-    },
-    {
-        "label": "Hot Wheels Pagani Utopia 1/5 Die-Cast - Red",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-pagani-utopia-1-5-die-cast-red/24342822/product-detail",
-    },
-    {
         "label": "Hot Wheels Premium Fast & Furious Toyota Supra - Orange",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-cars-die-cast-free-wheel-premium-fast-and-furious-toyota-supra-car-for-adult-collectors-orange/24390965/product-detail",
-    },
-    {
-        "label": "Hot Wheels 1995 Mitsubishi Eclipse - Grey",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheel-1995-mitsubishi-eclipse-car-grey/24342826/product-detail",
     },
     {
         "label": "Hot Wheels Premium Collector Display Set, 3 Cars & 1 Transporter",
@@ -59,10 +47,6 @@ PRODUCTS = [
     {
         "label": "Hot Wheels Silver Series 1/5 Lamborghini Countach LP 500 QV - White",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-1-5-silver-series-vintage-club-lamborghini-countach-lp-500-qv-die-cast-car-white/24390971/product-detail",
-    },
-    {
-        "label": "Hot Wheels Street Shaker (202/250) - Blue",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-street-shaker-toy-car-202-250-with-free-wheel-feature-blue/24246594/product-detail",
     },
     {
         "label": "Hot Wheels '20 Dodge Charger Hellcat (134/250) - Grey",
