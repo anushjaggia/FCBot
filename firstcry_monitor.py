@@ -77,8 +77,20 @@ PRODUCTS = [
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-silver-series-zamac-die-cast-free-wheel-toy-car-silver/22912948/product-detail",
     },
     {
-        "label": "Hot Wheels Ferrari LaFerrari 5/5 - Yellow",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-laferrari-5-5-die-cast-model-car-yellow/24342821/product-detail",
+    "label": "Hot Wheels Audi R8 - Silver",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-audi-r8-silver/24503324/product-detail",
+    },
+    {
+    "label": "Hot Wheels '84 Audi Sport Quattro - Red",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-84-audi-sport-quattro-red/24503322/product-detail",
+    },
+    {
+    "label": "Hot Wheels Audi 90 Quattro - White",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-audi-90-quattro-white/24503323/product-detail",
+    },
+    {
+    "label": "Hot Wheels Color Shifters Porsche 911 GT3 Cup - Red",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-color-shifters-porsche-911-gt3-cup-red/24503309/product-detail",
     },
     {
         "label": "Matchbox 2023 Toyota GR Supra - Grey",
