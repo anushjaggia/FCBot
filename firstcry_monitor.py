@@ -53,8 +53,8 @@ PRODUCTS = [
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-20-dodge-charger-hellcat-134-250-die-cast-toy-car-grey/22548066/product-detail",
     },
     {
-        "label": "Hot Wheels '07 Honda Civic Type R Kousoku Hauler - White",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheels-07-honda-civic-type-r-kousoku-hauler-camion-de-transport-silver-car-transport-truck-white/22848387/product-detail",
+    "label": "Hot Wheels Ferrari LaFerrari 5/5 - Yellow",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-laferrari-5-5-die-cast-model-car-yellow/24342821/product-detail",
     },
     {
         "label": "Hot Wheels Color Shifters Nissan Skyline GT-R R32 - Red",
