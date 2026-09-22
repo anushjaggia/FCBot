@@ -21,10 +21,6 @@ from playwright.async_api import (
 # automatically, so a run only costs as much as this list.
 PRODUCTS = [
     {
-        "label": "Majorette Toyota Sprinter AE86 GT Apex JDM Legends",
-        "url": "https://www.firstcry.com/majorette/majorette-toyota-ae86-gt-apex-jdm-legends-premium-die-cast-model-car-with-detailed-design-white/24178920/product-detail",
-    },
-    {
         "label": "Majorette Mitsubishi Lancer Evolution 9 JDM Legends",
         "url": "https://www.firstcry.com/majorette/majorette-mitsubishi-lancer-evolution-9-jdm-legends-premium-die-cast-car-off-white/24178926/product-detail",
     },
@@ -69,10 +65,6 @@ PRODUCTS = [
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-cars-premium-fast-and-furious-mercedes-benz-sls-amg-coupe-black-series-serie-car-for-adult-collectors-white/24390963/product-detail",
     },
     {
-        "label": "Hot Wheels 1970 Dodge Charger R/T - Grey",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheel-1970-dodge-charger-r-t-l-grey/24342828/product-detail",
-    },
-    {
         "label": "Hot Wheels Silver Series Zamac - Silver",
         "url": "https://www.firstcry.com/hot-wheels/hot-wheels-silver-series-zamac-die-cast-free-wheel-toy-car-silver/22912948/product-detail",
     },
@@ -99,10 +91,6 @@ PRODUCTS = [
     {
         "label": "Matchbox 1968 Ford Mustang Fastback - Green",
         "url": "https://www.firstcry.com/matchbox/match-box-1968-ford-mustang-fastback-car-green/24382815/product-detail",
-    },
-    {
-        "label": "Hot Wheels Honda Odyssey (149/250) - Blue",
-        "url": "https://www.firstcry.com/hot-wheels/hot-wheels-149-250-honda-odyssey-die-cat-free-wheel-toy-car-blue/23348662/product-detail",
     },
     {
     "label": "Hot Wheels Formula 1 Toy Cars 10 Pack - Multicolor",
