@@ -108,6 +108,14 @@ PRODUCTS = [
     "label": "Hot Wheels Toyota Supra - Black",
     "url": "https://www.firstcry.com/hot-wheels/hot-wheels-die-cast-free-wheel-toyota-supra-black/24342827/product-detail",
     },
+    {
+    "label": "Hot Wheels Ultra Magnus Die Cast Toy Truck - Blue/White",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ultra-magnus-die-cast-toy-truck-blue-white/24525298/product-detail",
+    },
+    {
+    "label": "Hot Wheels Old School '77 Pontiac Firebird TA Toy Car - Red",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-old-school-77-pontiac-firebird-ta-toy-car-red/24525285/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
