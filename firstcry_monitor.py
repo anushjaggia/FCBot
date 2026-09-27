@@ -116,6 +116,14 @@ PRODUCTS = [
     "label": "Hot Wheels Old School '77 Pontiac Firebird TA Toy Car - Red",
     "url": "https://www.firstcry.com/hot-wheels/hot-wheels-old-school-77-pontiac-firebird-ta-toy-car-red/24525285/product-detail",
     },
+    {
+    "label": "Hot Wheels Lotus Esprit Turbo - Red",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-lotus-esprit-turbo-toy-car-red/24525283/product-detail",
+    },
+    {
+    "label": "Hot Wheels Porsche Carrera - Red",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-porsche-carrera-die-cast-free-wheel-toy-car-red/24472665/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
