@@ -124,6 +124,10 @@ PRODUCTS = [
     "label": "Hot Wheels Porsche Carrera - Red",
     "url": "https://www.firstcry.com/hot-wheels/hot-wheels-porsche-carrera-die-cast-free-wheel-toy-car-red/24472665/product-detail",
     },
+    {
+    "label": "Hot Wheels Ferrari F2004 - Dark Red",
+    "url": "https://www.firstcry.com/hot-wheels/hot-wheels-ferrari-f2004-die-cast-free-wheel-toy-car-dark-red/24473264/product-detail",
+    },
 ]
 
 PINCODE = os.environ.get("PINCODE", "201012")
